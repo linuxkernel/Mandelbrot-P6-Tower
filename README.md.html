@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mandelbrot P6 Tower — README</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    color: #24292f;
+    max-width: 900px;
+    margin: 40px auto;
+    padding: 0 24px;
+    background: #ffffff;
+  }
+  h1, h2 {
+    border-bottom: 1px solid #d0d7de;
+    padding-bottom: 0.3em;
+    margin-top: 24px;
+  }
+  code {
+    background: #f6f8fa;
+    padding: 0.2em 0.4em;
+    border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 85%;
+  }
+  pre {
+    background: #f6f8fa;
+    padding: 16px;
+    overflow: auto;
+    border-radius: 6px;
+    border: 1px solid #d0d7de;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+  }
+  .math {
+    font-family: "Cambria Math", "Times New Roman", serif;
+    font-size: 1.15em;
+    background: #f6f8fa;
+    padding: 8px 14px;
+    display: inline-block;
+    border-radius: 6px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Mandelbrot P6 Tower — Procedural GPU-Accelerated Sculpture</h1>
+<p>An open-source procedural 3D art pipeline built with Blender Python (<code>bmesh</code>), procedural PBR shading, and NVIDIA CUDA ray tracing. Created as a computational sculpture for <strong>AP Art 3D Design</strong> and the <strong>AP Art 3D with NVIDIA GPU</strong> educational initiative.</p>
+
+<h2>Mathematical Foundation</h2>
+<p>The sculpture is generated from the <strong>Power-6 Multibrot Set</strong>:</p>
+<div class="math">z<sub>n+1</sub> = z<sub>n</sub><sup>6</sup> + c</div>
+<ul>
+  <li><strong>Coordinate Span:</strong> 6.6 &times; 6.6 complex plane window (3x expanded spatial scale)</li>
+  <li><strong>Resolution:</strong> 640 &times; 640 grid density to preserve fine outer needle filaments</li>
+  <li><strong>Architecture:</strong> Dual-mesh procedural plateau (<code>PlateauMeshP6</code>) paired with a PBR metallic gold shader (<code>MandelbrotGold</code>) and ground-level rainbow holographic energy rings (<code>HoloRingSystem</code>).</li>
+</ul>
+
+<h2>Project Files</h2>
+<ol>
+  <li><code>generate_mandelbrot_tower.py</code> &mdash; Generates the Power-6 Multibrot 3D mesh using Blender's <code>bmesh</code> API.</li>
+  <li><code>apply_golden_material.py</code> &mdash; Builds and assigns the procedural <code>MandelbrotGold</code> PBR metallic shader.</li>
+  <li><code>create_holo_rings.py</code> &mdash; Generates 8 concentric ground-level rainbow holographic torus rings with soft Fresnel emission.</li>
+</ol>
+
+<h2>Step-by-Step Usage in Blender</h2>
+<ol>
+  <li>Open <strong>Blender</strong> (4.x / 5.x) and switch to the <strong>Scripting</strong> workspace.</li>
+  <li>Run <code>generate_mandelbrot_tower.py</code> to generate the <code>PlateauMeshP6</code> geometry.</li>
+  <li>Run <code>apply_golden_material.py</code> to create and apply the <code>MandelbrotGold</code> metallic shader.</li>
+  <li>Run <code>create_holo_rings.py</code> to generate the <code>HoloRingSystem</code> ground-level rainbow rings around the base.</li>
+  <li>Switch to <strong>Render Properties</strong>:
+    <ul>
+      <li>Set <strong>Render Engine</strong> to <strong>Cycles</strong>.</li>
+      <li>Set <strong>Device</strong> to <strong>GPU Compute</strong> (enable <strong>CUDA</strong> or <strong>OptiX</strong> in <em>Edit &gt; Preferences &gt; System</em>).</li>
+      <li>Add an HDRI environment texture and enable <strong>Glare (Fog Glow)</strong> in the Compositor for bloom.</li>
+    </ul>
+  </li>
+</ol>
+
+<h2>Source Code</h2>
+
+<h3>1. <code>generate_mandelbrot_tower.py</code></h3>
+<pre><code>import bpy
+import bmesh
+import math
+
+def generate_mandelbrot_tower(
+    resolution=640,
+    span=6.6,
+    max_iter=64,
+    power=6,
+    height_scale=2.8,
+    base_thickness=0.2
+):
+    mesh_name = "PlateauMeshP6"
+    if mesh_name in bpy.data.objects:
+        bpy.data.objects.remove(bpy.data.objects[mesh_name], do_unlink=True)
+    if mesh_name in bpy.data.meshes:
+        bpy.data.meshes.remove(bpy.data.meshes[mesh_name], do_unlink=True)
+
+    mesh = bpy.data.meshes.new(mesh_name)
+    obj = bpy.data.objects.new(mesh_name, mesh)
+    bpy.context.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+
+    bm = bmesh.new()
+    half_span = span / 2.0
+    step = span / (resolution - 1)
+
+    verts_grid = [[None for _ in range(resolution)] for _ in range(resolution)]
+
+    for iy in range(resolution):
+        y = -half_span + iy * step
+        for ix in range(resolution):
+            x = -half_span + ix * step
+            c = complex(x / 2.2, y / 2.2)
+            z = 0j
+            iters = 0
+            while abs(z) <= 2.0 and iters < max_iter:
+                z = (z ** power) + c
+                iters += 1
+
+            if iters == max_iter:
+                z_height = height_scale
+            else:
+                smooth_val = iters + 1 - math.log(math.log(max(abs(z), 1.0001))) / math.log(power)
+                norm_h = max(0.0, min(1.0, smooth_val / max_iter))
+                z_height = base_thickness + (norm_h ** 1.6) * (height_scale - base_thickness)
+
+            verts_grid[iy][ix] = bm.verts.new((x, y, z_height))
+
+    bm.verts.ensure_lookup_table()
+
+    for iy in range(resolution - 1):
+        for ix in range(resolution - 1):
+            v1 = verts_grid[iy][ix]
+            v2 = verts_grid[iy][ix + 1]
+            v3 = verts_grid[iy + 1][ix + 1]
+            v4 = verts_grid[iy + 1][ix]
+            bm.faces.new((v1, v2, v3, v4))
+
+    bm.normal_update()
+    bm.to_mesh(mesh)
+    bm.free()
+
+    for poly in mesh.polygons:
+        poly.use_smooth = True
+
+    print(f"Generated {mesh_name} ({resolution}x{resolution} grid, span={span}).")
+
+if __name__ == "__main__":
+    generate_mandelbrot_tower()
+</code></pre>
+
+<h3>2. <code>apply_golden_material.py</code></h3>
+<pre><code>import bpy
+
+def apply_golden_material(target_name="PlateauMeshP6"):
+    mat_name = "MandelbrotGold"
+    mat = bpy.data.materials.get(mat_name)
+    if not mat:
+        mat = bpy.data.materials.new(name=mat_name)
+    mat.use_nodes = True
+
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+
+    node_out = nodes.new(type='ShaderNodeOutputMaterial')
+    node_out.location = (600, 0)
+
+    node_bsdf = nodes.new(type='ShaderNodeBsdfPrincipled')
+    node_bsdf.location = (250, 0)
+    node_bsdf.inputs['Metallic'].default_value = 0.96
+    node_bsdf.inputs['Roughness'].default_value = 0.18
+
+    node_coord = nodes.new(type='ShaderNodeTexCoord')
+    node_coord.location = (-700, 0)
+
+    node_sep = nodes.new(type='ShaderNodeSeparateXYZ')
+    node_sep.location = (-500, 0)
+
+    node_ramp = nodes.new(type='ShaderNodeValToRGB')
+    node_ramp.location = (-200, 100)
+    # Cliff color (deep crimson-bronze) to plateau top (bright 24k gold)
+    node_ramp.color_ramp.elements[0].position = 0.15
+    node_ramp.color_ramp.elements[0].color = (0.45, 0.06, 0.12, 1.0)
+    elem_mid = node_ramp.color_ramp.elements.new(0.65)
+    elem_mid.color = (0.85, 0.55, 0.12, 1.0)
+    node_ramp.color_ramp.elements[-1].position = 0.92
+    node_ramp.color_ramp.elements[-1].color = (1.0, 0.84, 0.35, 1.0)
+
+    node_noise = nodes.new(type='ShaderNodeTexNoise')
+    node_noise.location = (-450, -200)
+    node_noise.inputs['Scale'].default_value = 18.0
+    node_noise.inputs['Detail'].default_value = 6.0
+
+    node_bump = nodes.new(type='ShaderNodeBump')
+    node_bump.location = (0, -200)
+    node_bump.inputs['Strength'].default_value = 0.08
+
+    links.new(node_coord.outputs['Object'], node_sep.inputs['Vector'])
+    links.new(node_sep.outputs['Z'], node_ramp.inputs['Fac'])
+    links.new(node_ramp.outputs['Color'], node_bsdf.inputs['Base Color'])
+
+    links.new(node_coord.outputs['Object'], node_noise.inputs['Vector'])
+    links.new(node_noise.outputs['Fac'], node_bump.inputs['Height'])
+    links.new(node_bump.outputs['Normal'], node_bsdf.inputs['Normal'])
+
+    links.new(node_bsdf.outputs['BSDF'], node_out.inputs['Surface'])
+
+    obj = bpy.data.objects.get(target_name)
+    if obj:
+        obj.data.materials.clear()
+        obj.data.materials.append(mat)
+        print(f"Applied {mat_name} to {target_name}.")
+    else:
+        print(f"Created {mat_name}; target object '{target_name}' not found.")
+
+if __name__ == "__main__":
+    apply_golden_material()
+</code></pre>
+
+<h3>3. <code>create_holo_rings.py</code></h3>
+<pre><code>import bpy
+import math
+import colorsys
+
+def create_rainbow_holo_rings_ground(
+    num_rings=8,          # Number of concentric rings
+    start_radius=4.2,     # Inner radius surrounding the tower base
+    ring_spacing=0.55,    # Distance between each ring
+    base_z=0.01,          # Ground-level Z coordinate
+    emission_strength=8.0 # Soft, controlled light emission
+):
+    # 1. Clean up old holographic ring collection/objects
+    col_name = "HoloRingSystem"
+    if col_name in bpy.data.collections:
+        old_col = bpy.data.collections[col_name]
+        for obj in list(old_col.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+        bpy.data.collections.remove(old_col)
+
+    if "HolographicRings" in bpy.data.objects:
+        bpy.data.objects.remove(bpy.data.objects["HolographicRings"], do_unlink=True)
+
+    # Create a dedicated collection for clean scene organization
+    ring_col = bpy.data.collections.new(col_name)
+    bpy.context.scene.collection.children.link(ring_col)
+
+    # 2. Function to generate a rainbow material for a given hue (0.0 to 1.0)
+    def create_rainbow_mat(name, hue, strength):
+        mat = bpy.data.materials.get(name)
+        if not mat:
+            mat = bpy.data.materials.new(name=name)
+            mat.use_nodes = True
+            nodes = mat.node_tree.nodes
+            links = mat.node_tree.links
+            nodes.clear()
+
+            node_out = nodes.new(type='ShaderNodeOutputMaterial')
+            node_out.location = (400, 0)
+
+            node_mix = nodes.new(type='ShaderNodeMixShader')
+            node_mix.location = (200, 0)
+
+            node_trans = nodes.new(type='ShaderNodeBsdfTransparent')
+            node_trans.location = (0, 100)
+
+            node_emit = nodes.new(type='ShaderNodeEmission')
+            node_emit.location = (0, -100)
+            
+            # Convert HSV hue to RGB for a gorgeous rainbow gradient
+            rgb = colorsys.hsv_to_rgb(hue, 0.85, 1.0)
+            node_emit.inputs['Color'].default_value = (rgb[0], rgb[1], rgb[2], 1.0)
+            node_emit.inputs['Strength'].default_value = strength
+
+            # Layer Weight for soft translucent edges
+            node_lw = nodes.new(type='ShaderNodeLayerWeight')
+            node_lw.location = (-250, 0)
+            node_lw.inputs['Blend'].default_value = 0.35
+
+            links.new(node_lw.outputs['Facing'], node_mix.inputs['Fac'])
+            links.new(node_trans.outputs['BSDF'], node_mix.inputs[1])
+            links.new(node_emit.outputs['Emission'], node_mix.inputs[2])
+            links.new(node_mix.outputs['Shader'], node_out.inputs['Surface'])
+        return mat
+
+    # 3. Generate Concentric 3D Torus Rings at Ground Level
+    for i in range(num_rings):
+        radius = start_radius + (i * ring_spacing)
+        minor_rad = 0.018  # Sleek, uniform ring thickness
+        z_offset = base_z + (i * 0.002)  # Barely perceptible height step so they don't z-fight
+
+        bpy.ops.mesh.primitive_torus_add(
+            major_segments=128,
+            minor_segments=16,
+            major_radius=radius,
+            minor_radius=minor_rad,
+            location=(0.0, 0.0, z_offset)
+        )
+        ring_obj = bpy.context.active_object
+        ring_obj.name = f"HoloRing_Rainbow_{i+1:02d}"
+
+        # Smooth shading
+        for poly in ring_obj.data.polygons:
+            poly.use_smooth = True
+
+        # Calculate evenly spaced hue along the color wheel
+        hue_val = i / max(1, num_rings - 1)
+        mat_rainbow = create_rainbow_mat(f"HoloMat_Hue_{i:02d}", hue_val, emission_strength)
+        ring_obj.data.materials.append(mat_rainbow)
+
+        # Move to HoloRingSystem collection
+        for col in list(ring_obj.users_collection):
+            col.objects.unlink(ring_obj)
+        ring_col.objects.link(ring_obj)
+
+    print(f"Successfully created {num_rings} ground-level rainbow holographic rings!")
+
+if __name__ == "__main__":
+    create_rainbow_holo_rings_ground()
+</code></pre>
+
+<h2>License</h2>
+<p>Open-source for educational, artistic, and research use.</p>
+
+</body>
+</html>
